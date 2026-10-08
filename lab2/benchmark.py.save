@@ -1,0 +1,94 @@
+import subprocess
+import os
+import matplotlib.pyplot as plt
+
+THREADS_LIST = [1, 2, 4, 16]
+EXEC_NAME = "./matrix_vector"
+ALGORITHMS = {
+    1: "Ленточное по строкам",
+    2: "Ленточное по столбцам",
+    3: "Блочное разбиение"
+}
+
+if not os.path.exists(EXEC_NAME):
+    print(f"Ошибка: Сначала скомпилируйте программу! Команда: gcc -O3 -fopenmp matrix_vector.c -o matrix_vector -lm")
+    exit(1)
+
+results_data = {algo_id: {"times": [], "speedups": [], "efficiencies": []} for algo_id in ALGORITHMS}
+
+print("=" * 70)
+print(f" Начинаем бенчмарк умножения матрицы на вектор ")
+print("=" * 70)
+
+for algo_id, algo_name in ALGORITHMS.items():
+    print(f"\n Тестируем алгоритм: {algo_name}")
+    print("-" * 70)
+
+    t1 = None
+    for p in THREADS_LIST:
+        print(f"Запуск на {p:2d} потоках... ", end="", flush=True)
+
+        result = subprocess.run([EXEC_NAME, str(p), str(algo_id)], capture_output=True, text=True)
+        output = result.stdout
+        t_p = None
+
+        for line in output.split('\n'):
+            if "THREADS:" in line and "TIME:" in line:
+                try:
+                    parts = line.split("TIME:")
+                    t_p = float(parts[1].strip())
+                    break
+                except (IndexError, ValueError):
+                    continue
+
+        if t_p is None:
+            print(f"\nОшибка парсинга! Вывод:\n{output}")
+            exit(1)
+
+        results_data[algo_id]["times"].append(t_p)
+        if p == 1:
+            t1 = t_p
+
+        sp = t1 / t_p
+        ep = (sp / p) * 100
+
+        results_data[algo_id]["speedups"].append(sp)
+        results_data[algo_id]["efficiencies"].append(ep)
+        print(f"Время: {t_p:.6f} сек. Ускорение: {sp:.2f}x")
+
+print("\n" + "=" * 85)
+print(f" {'Алгоритм':<22} | {'Потоки':<6} | {'Время, сек':<12} | {'Ускорение':<10} | {'Эффективность':<12} ")
+print("-" * 85)
+for algo_id, algo_name in ALGORITHMS.items():
+    for i, p in enumerate(THREADS_LIST):
+        t = results_data[algo_id]["times"][i]
+        sp = results_data[algo_id]["speedups"][i]
+        ep = results_data[algo_id]["efficiencies"][i]
+        print(f" {algo_name:<22} | {p:<6} | {t:<12.6f} | {sp:<10.2f} | {ep:.1f}% ")
+    print("-" * 85)
+
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+colors = {1: 'ro-', 2: 'go-', 3: 'bo-'}
+
+ax1.plot(THREADS_LIST, THREADS_LIST, 'k--', label="Идеальное ускорение ($S_p = p$)")
+for algo_id, algo_name in ALGORITHMS.items():
+    ax1.plot(THREADS_LIST, results_data[algo_id]["speedups"], colors[algo_id], label=algo_name, linewidth=2)
+ax1.set_title("Сравнение ускорения $S_p$")
+ax1.set_xlabel("Количество потоков (p)")
+ax1.set_ylabel("Ускорение ($T_1 / T_p$)")
+ax1.grid(True, linestyle=':')
+ax1.legend()
+
+for algo_id, algo_name in ALGORITHMS.items():
+    ax2.plot(THREADS_LIST, results_data[algo_id]["efficiencies"], colors[algo_id], label=algo_name, linewidth=2)
+ax2.set_title("Сравнение эффективности $E_p$")
+ax2.set_xlabel("Количество потоков (p)")
+ax2.set_ylabel("Эффективность (%)")
+ax2.set_ylim(0, 110)
+ax2.grid(True, linestyle=':')
+ax2.legend()
+
+output_image = "matrix_vector_scalability.png"
+plt.tight_layout()
+plt.savefig(output_image, dpi=150)
+print(f"\n Графики сохранены в файл: {output_image}")
